@@ -7,6 +7,9 @@ from gui.dialogs import NewImageDialog
 from gui.canvas import CanvasWidget
 from tools.brush_tool import BrushTool
 from utils.constants import DEFAULT_FG_COLOR
+from tools.eraser_tool import EraserTool
+from tools.fill_tool import FillTool
+from tools.pipette_tool import PipetteTool
 
 
 class MainWindow:
@@ -251,10 +254,9 @@ class MainWindow:
         self.current_color = color
         self.color_button.config(bg=f"#{color[0]:02x}{color[1]:02x}{color[2]:02x}")
 
-        # Обновляем цвет в текущем инструменте
-        if self.current_tool and self.tools[self.current_tool]:
-            if hasattr(self.tools[self.current_tool], 'set_color'):
-                self.tools[self.current_tool].set_color(color)
+        for tool_id, tool in self.tools.items():
+            if tool and hasattr(tool, 'set_color'):
+                tool.set_color(color)
 
     def set_color_from_hex(self, hex_color):
         """Установить цвет из HEX строки"""
@@ -263,10 +265,14 @@ class MainWindow:
         self.set_color(rgb + (255,))
 
     def _update_brush_size(self):
-        """Обновить размер кисти"""
+        """Обновить размер кисти и ластика"""
         size = self.brush_size_var.get()
+
         if self.tools["brush"]:
             self.tools["brush"].set_size(size)
+
+        if self.tools["eraser"]:
+            self.tools["eraser"].set_size(size)
 
     def _update_coords(self, event):
         """Обновить координаты в строке состояния"""
@@ -374,3 +380,29 @@ class MainWindow:
             "Функционал: Открытие/сохранение, инструмент Кисть\n\n"
             "Python, Tkinter, Pillow"
         )
+
+    def _init_tools(self):
+        """Инициализировать инструменты"""
+        # Кисть
+        brush_tool = BrushTool()
+        brush_tool.set_color(self.current_color)
+        brush_tool.set_size(self.brush_size_var.get())
+        self.tools["brush"] = brush_tool
+
+        # Ластик
+        eraser_tool = EraserTool()
+        eraser_tool.set_size(self.brush_size_var.get())
+        self.tools["eraser"] = eraser_tool
+
+        # Заливка
+        fill_tool = FillTool()
+        fill_tool.set_color(self.current_color)
+        self.tools["fill"] = fill_tool
+
+        # Пипетка
+        pipette_tool = PipetteTool()
+        self.tools["pipette"] = pipette_tool
+
+        # TODO: другие инструменты будут добавлены позже
+        self.tools["selection"] = None
+        self.tools["text"] = None
