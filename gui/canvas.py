@@ -57,6 +57,12 @@ class CanvasWidget(tk.Canvas):
                 image=self.tk_image
             )
 
+        # Если есть инструмент выделения, обновляем его прямоугольник
+        if (self.current_tool and
+                hasattr(self.current_tool, 'selection_rect') and
+                self.current_tool.selection_rect):
+            self.current_tool._update_selection_rect(self)
+
         # Обновляем область прокрутки
         self.update_scroll_region()
 

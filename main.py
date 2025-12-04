@@ -53,6 +53,7 @@ class ImageEditorApp:
             image_state = self.history.undo(self.model.image)
             self.model._image = image_state
             self.model.modified = True
+            self.model.set_selection(None)  # Очищаем выделение
             self.view.update_image()
 
     def redo(self):
@@ -61,6 +62,7 @@ class ImageEditorApp:
             image_state = self.history.redo(self.model.image)
             self.model._image = image_state
             self.model.modified = True
+            self.model.set_selection(None)  # Очищаем выделение
             self.view.update_image()
 
     def on_closing(self):

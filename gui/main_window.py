@@ -10,6 +10,7 @@ from utils.constants import DEFAULT_FG_COLOR
 from tools.eraser_tool import EraserTool
 from tools.fill_tool import FillTool
 from tools.pipette_tool import PipetteTool
+from tools.selection_tool import SelectionTool
 
 
 class MainWindow:
@@ -65,6 +66,15 @@ class MainWindow:
                               accelerator="Ctrl+Z")
         edit_menu.add_command(label="Повторить", command=self.controller.redo,
                               accelerator="Ctrl+Y")
+        edit_menu.add_separator()
+        edit_menu.add_command(label="Вырезать", command=self.cut_selection,
+                              accelerator="Ctrl+X")
+        edit_menu.add_command(label="Копировать", command=self.copy_selection,
+                              accelerator="Ctrl+C")
+        edit_menu.add_command(label="Вставить", command=self.paste_selection,
+                              accelerator="Ctrl+V")
+        edit_menu.add_command(label="Удалить", command=self.delete_selection,
+                              accelerator="Del")
 
         # Меню "Справка"
         help_menu = tk.Menu(menubar, tearoff=0)
@@ -75,6 +85,10 @@ class MainWindow:
         self.root.bind("<Control-n>", lambda e: self.create_new_image())
         self.root.bind("<Control-o>", lambda e: self.open_image())
         self.root.bind("<Control-s>", lambda e: self.save_image())
+        self.root.bind("<Control-x>", lambda e: self.cut_selection())
+        self.root.bind("<Control-c>", lambda e: self.copy_selection())
+        self.root.bind("<Control-v>", lambda e: self.paste_selection())
+        self.root.bind("<Delete>", lambda e: self.delete_selection())
 
     def _create_toolbar(self):
         """Создать панель инструментов"""
@@ -232,6 +246,11 @@ class MainWindow:
     def select_tool(self, tool_id: str):
         """Выбрать инструмент"""
         if tool_id in self.tools and self.tools[tool_id] is not None:
+            # Очищаем выделение при смене инструмента (кроме самого инструмента выделения)
+            if tool_id != "selection" and self.tools["selection"]:
+                self.tools["selection"].clear_selection(self.canvas)
+                self.model.set_selection(None)
+
             self.current_tool = tool_id
             self.canvas.set_tool(self.tools[tool_id])
             self.tool_label.config(text=f"Инструмент: {self.tools[tool_id].name}")
@@ -403,6 +422,55 @@ class MainWindow:
         pipette_tool = PipetteTool()
         self.tools["pipette"] = pipette_tool
 
-        # TODO: другие инструменты будут добавлены позже
-        self.tools["selection"] = None
+        # Выделение
+        selection_tool = SelectionTool()
+        self.tools["selection"] = selection_tool
+
+        # TODO: инструмент Текст будет добавлен позже
         self.tools["text"] = None
+
+
+def cut_selection(self):
+    """Вырезать выделенную область"""
+    if self.model.selection:
+        self.controller.save_state()  # Сохраняем состояние перед изменением
+        self.model.cut_selection()
+        self.update_image()
+        # Очищаем выделение на холсте
+        if self.tools["selection"]:
+            self.tools["selection"].clear_selection(self.canvas)
+
+
+def copy_selection(self):
+    """Копировать выделенную область"""
+    if self.model.selection:
+        self.model.copy_selection()
+        self.status_label.config(text="Выделение скопировано в буфер")
+
+
+def paste_selection(self):
+    """Вставить из буфера обмена"""
+    self.controller.save_state()  # Сохраняем состояние перед изменением
+
+    # Вставляем в центр видимой области холста
+    canvas_x = self.canvas.winfo_width() // 2
+    canvas_y = self.canvas.winfo_height() // 2
+
+    # Преобразуем координаты холста в координаты изображения
+    x = int(self.canvas.canvasx(canvas_x))
+    y = int(self.canvas.canvasy(canvas_y))
+
+    self.model.paste_from_clipboard((x, y))
+    self.update_image()
+    self.status_label.config(text="Вставлено из буфера")
+
+
+def delete_selection(self):
+    """Удалить выделенную область"""
+    if self.model.selection:
+        self.controller.save_state()  # Сохраняем состояние перед изменением
+        self.model.delete_selection()
+        self.update_image()
+        # Очищаем выделение на холсте
+        if self.tools["selection"]:
+            self.tools["selection"].clear_selection(self.canvas)
