@@ -26,7 +26,10 @@ class MainWindow:
 
         # Создаем элементы интерфейса
         self._create_menu()
+        self._create_toolbar()
         self._create_canvas_area()
+        self._create_statusbar()
+        self._create_color_palette()
 
         # Инициализация инструментов
         self._init_tools()
@@ -42,16 +45,30 @@ class MainWindow:
         # Меню "Файл"
         file_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Файл", menu=file_menu)
-        file_menu.add_command(label="Новый...")
-        file_menu.add_command(label="Открыть...")
+        file_menu.add_command(label="Новый...", command=self.create_new_image,
+                              accelerator="Ctrl+N")
+        file_menu.add_command(label="Открыть...", command=self.open_image,
+                              accelerator="Ctrl+O")
+        file_menu.add_command(label="Сохранить", command=self.save_image,
+                              accelerator="Ctrl+S")
+        file_menu.add_command(label="Сохранить как...", command=self.save_image_as)
         file_menu.add_separator()
         file_menu.add_command(label="Выход", command=self.root.quit)
+
+        # Меню "Правка"
+        edit_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Правка", menu=edit_menu)
+        edit_menu.add_command(label="Отменить", command=self.controller.undo,
+                              accelerator="Ctrl+Z")
+        edit_menu.add_command(label="Повторить", command=self.controller.redo,
+                              accelerator="Ctrl+Y")
 
         # Меню "Справка"
         help_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Справка", menu=help_menu)
-        help_menu.add_command(label="О программе")
+        help_menu.add_command(label="О программе", command=self.show_about)
 
+        # Привязка горячих клавиш
         self.root.bind("<Control-n>", lambda e: self.create_new_image())
         self.root.bind("<Control-o>", lambda e: self.open_image())
         self.root.bind("<Control-s>", lambda e: self.save_image())
@@ -122,24 +139,21 @@ class MainWindow:
         v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
 
-        # Холст Tkinter
-        self.canvas = tk.Canvas(
+        # Наш кастомный холст
+        self.canvas = CanvasWidget(
             canvas_frame,
+            self.controller,
             bg="lightgray",
             yscrollcommand=v_scrollbar.set,
-            xscrollcommand=h_scrollbar.set,
-            scrollregion=(0, 0, self.model.width, self.model.height)
+            xscrollcommand=h_scrollbar.set
         )
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         v_scrollbar.config(command=self.canvas.yview)
         h_scrollbar.config(command=self.canvas.xview)
 
-        # Отображаем изображение на холсте
-        self._display_image()
-
-        # Привязываем событие изменения размера
-        self.canvas.bind("<Configure>", self._update_scroll_region)
+        # Отображаем изображение
+        self.canvas.update_image()
 
     def _create_statusbar(self):
         """Создать строку состояния"""
@@ -205,6 +219,7 @@ class MainWindow:
         brush_tool.set_size(self.brush_size_var.get())
         self.tools["brush"] = brush_tool
 
+        # TODO: другие инструменты будут добавлены позже
         self.tools["eraser"] = None
         self.tools["fill"] = None
         self.tools["selection"] = None
@@ -217,6 +232,9 @@ class MainWindow:
             self.current_tool = tool_id
             self.canvas.set_tool(self.tools[tool_id])
             self.tool_label.config(text=f"Инструмент: {self.tools[tool_id].name}")
+        else:
+            # Если инструмент еще не реализован
+            self.status_label.config(text=f"Инструмент '{tool_id}' в разработке")
 
     def choose_color(self):
         """Выбрать цвет через диалог"""
@@ -277,37 +295,6 @@ class MainWindow:
 
         self.status_label.config(text=status_text)
 
-    def _display_image(self):
-        """Отобразить изображение на холсте"""
-        # Конвертируем PIL Image в PhotoImage для Tkinter
-        self.tk_image = ImageTk.PhotoImage(self.model.image)
-
-        # Создаем изображение на холсте
-        self.canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_image)
-
-        # Обновляем область прокрутки
-        self._update_scroll_region()
-
-    def _update_scroll_region(self, event=None):
-        """Обновить область прокрутки"""
-        self.canvas.config(scrollregion=(0, 0, self.model.width, self.model.height))
-
-    def update_status(self):
-        """Обновить строку состояния"""
-        self.image_size_label.config(
-            text=f"Размер: {self.model.width}x{self.model.height}"
-        )
-
-        filename = "Новое изображение"
-        if self.model.filepath:
-            filename = os.path.basename(self.model.filepath)
-
-        status_text = filename
-        if self.model.modified:
-            status_text += " (изменено)"
-
-        self.status_label.config(text=status_text)
-
     def create_new_image(self):
         """Создать новое изображение"""
         dialog = NewImageDialog(self.root)
@@ -315,6 +302,7 @@ class MainWindow:
             width, height, bg_color = dialog.result
             self.model.create_new(width, height, bg_color)
             self.update_image()
+            self.controller.save_state()
 
     def open_image(self):
         """Открыть изображение"""
@@ -335,6 +323,7 @@ class MainWindow:
                 self.model.load_image(filename)
                 self.update_image()
                 self.status_label.config(text=f"Открыт файл: {os.path.basename(filename)}")
+                self.controller.save_state()
             except Exception as e:
                 messagebox.showerror("Ошибка", f"Не удалось открыть файл:\n{e}")
 
@@ -381,28 +370,7 @@ class MainWindow:
         messagebox.showinfo(
             "О программе",
             "Редактор растровой графики\n\n"
-            "Версия 0.3\n"
-            "Функционал: Открытие/сохранение файлов\n\n"
+            "Версия 0.4\n"
+            "Функционал: Открытие/сохранение, инструмент Кисть\n\n"
             "Python, Tkinter, Pillow"
         )
-
-    def update_image(self):
-        """Обновить изображение на холсте (делегируем холсту)"""
-        self.canvas.update_image()
-        self.update_status()
-
-    def update_status(self):
-        """Обновить строку состояния"""
-        self.image_size_label.config(
-            text=f"Размер: {self.model.width}x{self.model.height}"
-        )
-
-        filename = "Новое изображение"
-        if self.model.filepath:
-            filename = os.path.basename(self.model.filepath)
-
-        status_text = filename
-        if self.model.modified:
-            status_text += " (изменено)"
-
-        self.status_label.config(text=status_text)
