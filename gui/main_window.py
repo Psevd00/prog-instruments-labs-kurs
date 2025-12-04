@@ -80,3 +80,97 @@ class MainWindow:
     def _update_scroll_region(self, event=None):
         """Обновить область прокрутки"""
         self.canvas.config(scrollregion=(0, 0, self.model.width, self.model.height))
+
+    def update_status(self):
+        """Обновить строку состояния"""
+        self.image_size_label.config(
+            text=f"Размер: {self.model.width}x{self.model.height}"
+        )
+
+        filename = "Новое изображение"
+        if self.model.filepath:
+            filename = os.path.basename(self.model.filepath)
+
+        status_text = filename
+        if self.model.modified:
+            status_text += " (изменено)"
+
+        self.status_label.config(text=status_text)
+
+    def create_new_image(self):
+        """Создать новое изображение"""
+        dialog = NewImageDialog(self.root)
+        if dialog.result:
+            width, height, bg_color = dialog.result
+            self.model.create_new(width, height, bg_color)
+            self.update_image()
+
+    def open_image(self):
+        """Открыть изображение"""
+        filetypes = [
+            ("Все изображения", "*.png *.jpg *.jpeg *.bmp *.gif"),
+            ("PNG files", "*.png"),
+            ("JPEG files", "*.jpg *.jpeg"),
+            ("BMP files", "*.bmp"),
+        ]
+
+        filename = filedialog.askopenfilename(
+            title="Открыть изображение",
+            filetypes=filetypes
+        )
+
+        if filename:
+            try:
+                self.model.load_image(filename)
+                self.update_image()
+                self.status_label.config(text=f"Открыт файл: {os.path.basename(filename)}")
+            except Exception as e:
+                messagebox.showerror("Ошибка", f"Не удалось открыть файл:\n{e}")
+
+    def save_image(self):
+        """Сохранить изображение"""
+        if self.model.filepath:
+            try:
+                # Определяем формат по расширению
+                ext = os.path.splitext(self.model.filepath)[1].lower()
+                format = "PNG" if ext == ".png" else "JPEG" if ext in [".jpg", ".jpeg"] else "PNG"
+
+                self.model.save_image(self.model.filepath, format)
+                self.update_status()
+            except Exception as e:
+                messagebox.showerror("Ошибка", f"Не удалось сохранить файл:\n{e}")
+        else:
+            self.save_image_as()
+
+    def save_image_as(self):
+        """Сохранить изображение как..."""
+        filetypes = [
+            ("PNG files", "*.png"),
+            ("JPEG files", "*.jpg"),
+            ("All files", "*.*"),
+        ]
+
+        filename = filedialog.asksaveasfilename(
+            title="Сохранить изображение",
+            defaultextension=".png",
+            filetypes=filetypes
+        )
+
+        if filename:
+            try:
+                format = "PNG" if filename.lower().endswith('.png') else "JPEG"
+                self.model.save_image(filename, format)
+                self.update_status()
+                self.status_label.config(text=f"Сохранено: {os.path.basename(filename)}")
+            except Exception as e:
+                messagebox.showerror("Ошибка", f"Не удалось сохранить файл:\n{e}")
+
+    def show_about(self):
+        """Показать информацию о программе"""
+        messagebox.showinfo(
+            "О программе",
+            "Редактор растровой графики\n\n"
+            "Версия 0.3\n"
+            "Функционал: Открытие/сохранение файлов\n\n"
+            "Python, Tkinter, Pillow"
+        )

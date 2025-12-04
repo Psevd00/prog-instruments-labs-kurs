@@ -18,6 +18,21 @@ class ImageEditorApp:
         # Инициализация представления
         self.view = MainWindow(self.root, self)
 
+    def on_closing(self):
+        """Обработчик закрытия окна"""
+        if self.model.modified:
+            response = messagebox.askyesnocancel(
+                "Сохранение",
+                "Изображение было изменено. Сохранить перед выходом?"
+            )
+
+            if response is None:  # Нажата Отмена
+                return
+            elif response:  # Нажата Да
+                self.view.save_image()
+
+        self.root.destroy()
+
     def run(self):
         """Запустить приложение"""
         self.root.mainloop()
