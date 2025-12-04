@@ -1,0 +1,73 @@
+# tools/brush_tool.py
+from tools.base_tool import BaseTool
+from PIL import ImageDraw
+from typing import Tuple
+
+
+class BrushTool(BaseTool):
+    """Инструмент Кисть для рисования"""
+
+    def __init__(self):
+        super().__init__(name="Кисть", icon="🖌️")
+        self.cursor = "circle"
+        self.last_x = None
+        self.last_y = None
+        self.drawing = False
+
+        # Параметры кисти
+        self.size = 5
+        self.color = (0, 0, 0, 255)  # Чёрный по умолчанию
+
+    def on_mouse_down(self, event, model, canvas):
+        """Начало рисования"""
+        self.drawing = True
+        self.last_x = event.x
+        self.last_y = event.y
+
+        # Рисуем первую точку
+        self._draw_point(event.x, event.y, model)
+
+    def on_mouse_move(self, event, model, canvas):
+        """Рисование при перемещении мыши"""
+        if self.drawing and self.last_x is not None and self.last_y is not None:
+            # Рисуем линию от предыдущей точки к текущей
+            self._draw_line(self.last_x, self.last_y, event.x, event.y, model)
+            self.last_x = event.x
+            self.last_y = event.y
+
+    def on_mouse_up(self, event, model, canvas):
+        """Конец рисования"""
+        self.drawing = False
+        self.last_x = None
+        self.last_y = None
+
+        # Помечаем изображение как измененное
+        model.modified = True
+
+    def _draw_point(self, x: int, y: int, model):
+        """Нарисовать точку"""
+        if 0 <= x < model.width and 0 <= y < model.height:
+            draw = ImageDraw.Draw(model.image)
+            if self.size == 1:
+                draw.point((x, y), fill=self.color)
+            else:
+                radius = self.size // 2
+                draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=self.color)
+
+    def _draw_line(self, x1: int, y1: int, x2: int, y2: int, model):
+        """Нарисовать линию"""
+        draw = ImageDraw.Draw(model.image)
+        if self.size == 1:
+            draw.line([(x1, y1), (x2, y2)], fill=self.color, width=1)
+        else:
+            # Для толстых кистей рисуем несколько точек вдоль линии
+            draw.line([(x1, y1), (x2, y2)], fill=self.color, width=self.size)
+
+    def set_color(self, color: Tuple):
+        """Установить цвет кисти"""
+        self.color = color
+
+    def set_size(self, size: int):
+        """Установить размер кисти"""
+        if size > 0:
+            self.size = size

@@ -1,7 +1,12 @@
 # gui/main_window.py
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, filedialog, messagebox, colorchooser
 from PIL import ImageTk
+import os
+from gui.dialogs import NewImageDialog
+from gui.canvas import CanvasWidget
+from tools.brush_tool import BrushTool
+from utils.constants import DEFAULT_FG_COLOR
 
 
 class MainWindow:
@@ -12,9 +17,22 @@ class MainWindow:
         self.controller = controller
         self.model = controller.model
 
+        # Инструменты
+        self.tools = {}
+        self.current_tool = None
+
+        # Текущий цвет
+        self.current_color = DEFAULT_FG_COLOR
+
         # Создаем элементы интерфейса
         self._create_menu()
         self._create_canvas_area()
+
+        # Инициализация инструментов
+        self._init_tools()
+
+        # Активируем инструмент по умолчанию
+        self.select_tool("brush")
 
     def _create_menu(self):
         """Создать главное меню"""
@@ -33,6 +51,63 @@ class MainWindow:
         help_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Справка", menu=help_menu)
         help_menu.add_command(label="О программе")
+
+        self.root.bind("<Control-n>", lambda e: self.create_new_image())
+        self.root.bind("<Control-o>", lambda e: self.open_image())
+        self.root.bind("<Control-s>", lambda e: self.save_image())
+
+    def _create_toolbar(self):
+        """Создать панель инструментов"""
+        toolbar_frame = tk.Frame(self.root, relief=tk.RAISED, bd=2)
+        toolbar_frame.pack(side=tk.TOP, fill=tk.X)
+
+        # Кнопки инструментов
+        tools = [
+            ("Кисть", "🖌️", "brush"),
+            ("Ластик", "🧽", "eraser"),
+            ("Заливка", "🎨", "fill"),
+            ("Выделение", "▢", "selection"),
+            ("Пипетка", "🔍", "pipette"),
+            ("Текст", "T", "text"),
+        ]
+
+        for text, icon, tool_id in tools:
+            btn = tk.Button(toolbar_frame, text=f"{icon}",
+                            command=lambda tid=tool_id: self.select_tool(tid),
+                            relief=tk.RAISED,
+                            width=3,
+                            font=("Arial", 12))
+            btn.pack(side=tk.LEFT, padx=2, pady=2)
+
+            # Подсказка
+            self._create_tooltip(btn, text)
+
+        # Разделитель
+        tk.Label(toolbar_frame, text="|").pack(side=tk.LEFT, padx=5)
+
+        # Выбор размера кисти
+        tk.Label(toolbar_frame, text="Размер:").pack(side=tk.LEFT, padx=5)
+        self.brush_size_var = tk.IntVar(value=5)
+        size_spin = tk.Spinbox(toolbar_frame, from_=1, to=50,
+                               textvariable=self.brush_size_var,
+                               width=5,
+                               command=self._update_brush_size)
+        size_spin.pack(side=tk.LEFT, padx=2)
+
+        # Привязка события изменения
+        self.brush_size_var.trace("w", lambda *args: self._update_brush_size())
+
+    def _create_tooltip(self, widget, text):
+        """Создать всплывающую подсказку"""
+
+        def enter(event):
+            self.status_label.config(text=text)
+
+        def leave(event):
+            self.update_status()
+
+        widget.bind("<Enter>", enter)
+        widget.bind("<Leave>", leave)
 
     def _create_canvas_area(self):
         """Создать область холста"""
@@ -65,6 +140,142 @@ class MainWindow:
 
         # Привязываем событие изменения размера
         self.canvas.bind("<Configure>", self._update_scroll_region)
+
+    def _create_statusbar(self):
+        """Создать строку состояния"""
+        self.statusbar = tk.Frame(self.root, relief=tk.SUNKEN, bd=1)
+        self.statusbar.pack(side=tk.BOTTOM, fill=tk.X)
+
+        self.status_label = tk.Label(self.statusbar, text="Готово")
+        self.status_label.pack(side=tk.LEFT, padx=5)
+
+        # Индикатор инструмента
+        self.tool_label = tk.Label(self.statusbar, text="Инструмент: Кисть")
+        self.tool_label.pack(side=tk.LEFT, padx=20)
+
+        # Индикатор координат
+        self.coords_label = tk.Label(self.statusbar, text="x: 0, y: 0")
+        self.coords_label.pack(side=tk.RIGHT, padx=10)
+
+        # Индикатор размера изображения
+        self.image_size_label = tk.Label(self.statusbar,
+                                         text=f"Размер: {self.model.width}x{self.model.height}")
+        self.image_size_label.pack(side=tk.RIGHT, padx=10)
+
+        # Привязка движения мыши к холсту для отображения координат
+        self.canvas.bind("<Motion>", self._update_coords)
+
+    def _create_color_palette(self):
+        """Создать палитру цветов"""
+        color_frame = tk.Frame(self.root, relief=tk.SUNKEN, bd=1)
+        color_frame.pack(side=tk.BOTTOM, fill=tk.X)
+
+        # Кнопка выбора цвета
+        self.color_button = tk.Button(
+            color_frame,
+            text="Цвет",
+            command=self.choose_color,
+            bg="#000000",
+            fg="#FFFFFF",
+            width=8
+        )
+        self.color_button.pack(side=tk.LEFT, padx=5, pady=2)
+
+        # Палитра часто используемых цветов
+        colors = [
+            "#000000", "#FFFFFF", "#FF0000", "#00FF00", "#0000FF",
+            "#FFFF00", "#FF00FF", "#00FFFF", "#808080", "#800000"
+        ]
+
+        for color in colors:
+            btn = tk.Button(
+                color_frame,
+                bg=color,
+                width=2,
+                height=1,
+                command=lambda c=color: self.set_color_from_hex(c)
+            )
+            btn.pack(side=tk.LEFT, padx=1, pady=2)
+
+    def _init_tools(self):
+        """Инициализировать инструменты"""
+        # Кисть
+        brush_tool = BrushTool()
+        brush_tool.set_color(self.current_color)
+        brush_tool.set_size(self.brush_size_var.get())
+        self.tools["brush"] = brush_tool
+
+        self.tools["eraser"] = None
+        self.tools["fill"] = None
+        self.tools["selection"] = None
+        self.tools["pipette"] = None
+        self.tools["text"] = None
+
+    def select_tool(self, tool_id: str):
+        """Выбрать инструмент"""
+        if tool_id in self.tools and self.tools[tool_id] is not None:
+            self.current_tool = tool_id
+            self.canvas.set_tool(self.tools[tool_id])
+            self.tool_label.config(text=f"Инструмент: {self.tools[tool_id].name}")
+
+    def choose_color(self):
+        """Выбрать цвет через диалог"""
+        color_code = colorchooser.askcolor(
+            title="Выберите цвет",
+            initialcolor="#000000"
+        )
+        if color_code[0]:
+            rgb = tuple(map(int, color_code[0]))
+            self.set_color(rgb + (255,))  # Добавляем альфа-канал
+
+    def set_color(self, color):
+        """Установить текущий цвет"""
+        self.current_color = color
+        self.color_button.config(bg=f"#{color[0]:02x}{color[1]:02x}{color[2]:02x}")
+
+        # Обновляем цвет в текущем инструменте
+        if self.current_tool and self.tools[self.current_tool]:
+            if hasattr(self.tools[self.current_tool], 'set_color'):
+                self.tools[self.current_tool].set_color(color)
+
+    def set_color_from_hex(self, hex_color):
+        """Установить цвет из HEX строки"""
+        hex_color = hex_color.lstrip('#')
+        rgb = tuple(int(hex_color[i:i + 2], 16) for i in (0, 2, 4))
+        self.set_color(rgb + (255,))
+
+    def _update_brush_size(self):
+        """Обновить размер кисти"""
+        size = self.brush_size_var.get()
+        if self.tools["brush"]:
+            self.tools["brush"].set_size(size)
+
+    def _update_coords(self, event):
+        """Обновить координаты в строке состояния"""
+        x = self.canvas.canvasx(event.x)
+        y = self.canvas.canvasy(event.y)
+        self.coords_label.config(text=f"x: {int(x)}, y: {int(y)}")
+
+    def update_image(self):
+        """Обновить изображение на холсте (делегируем холсту)"""
+        self.canvas.update_image()
+        self.update_status()
+
+    def update_status(self):
+        """Обновить строку состояния"""
+        self.image_size_label.config(
+            text=f"Размер: {self.model.width}x{self.model.height}"
+        )
+
+        filename = "Новое изображение"
+        if self.model.filepath:
+            filename = os.path.basename(self.model.filepath)
+
+        status_text = filename
+        if self.model.modified:
+            status_text += " (изменено)"
+
+        self.status_label.config(text=status_text)
 
     def _display_image(self):
         """Отобразить изображение на холсте"""
@@ -174,3 +385,24 @@ class MainWindow:
             "Функционал: Открытие/сохранение файлов\n\n"
             "Python, Tkinter, Pillow"
         )
+
+    def update_image(self):
+        """Обновить изображение на холсте (делегируем холсту)"""
+        self.canvas.update_image()
+        self.update_status()
+
+    def update_status(self):
+        """Обновить строку состояния"""
+        self.image_size_label.config(
+            text=f"Размер: {self.model.width}x{self.model.height}"
+        )
+
+        filename = "Новое изображение"
+        if self.model.filepath:
+            filename = os.path.basename(self.model.filepath)
+
+        status_text = filename
+        if self.model.modified:
+            status_text += " (изменено)"
+
+        self.status_label.config(text=status_text)
