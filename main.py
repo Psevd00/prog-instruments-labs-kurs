@@ -12,7 +12,7 @@ class ImageEditorApp:
     def __init__(self):
         try:
             self.root = tk.Tk()
-            self.root.title("Редактор растровой графики - v0.4")
+            self.root.title("Редактор растровой графики - v0.6")
             self.root.geometry("1200x800")
 
             # Инициализация модели
@@ -42,6 +42,10 @@ class ImageEditorApp:
         self.root.bind("<Control-s>", lambda e: self.view.save_image())
         self.root.bind("<Control-o>", lambda e: self.view.open_image())
         self.root.bind("<Control-n>", lambda e: self.view.create_new_image())
+        self.root.bind("<Control-x>", lambda e: self.view.cut_selection())
+        self.root.bind("<Control-c>", lambda e: self.view.copy_selection())
+        self.root.bind("<Control-v>", lambda e: self.view.paste_selection())
+        self.root.bind("<Delete>", lambda e: self.view.delete_selection())
 
     def save_state(self):
         """Сохранить текущее состояние в историю"""
