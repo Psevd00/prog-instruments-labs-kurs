@@ -1,6 +1,7 @@
-# tools/brush_tool.py
+7.	# tools/brush_tool.py
 from tools.base_tool import BaseTool
 from PIL import ImageDraw
+import math
 from typing import Tuple
 
 
@@ -13,61 +14,62 @@ class BrushTool(BaseTool):
         self.last_x = None
         self.last_y = None
         self.drawing = False
-
-        # Параметры кисти
         self.size = 5
-        self.color = (0, 0, 0, 255)  # Чёрный по умолчанию
+        self.color = (0, 0, 0, 255)
+        self.pressure_sensitive = False  # Для плавности линий
 
     def on_mouse_down(self, event, model, canvas):
-        """Начало рисования"""
+        # Сохраняем состояние перед началом рисования
+        if hasattr(canvas, 'controller'):
+            canvas.controller.save_state()
+
         self.drawing = True
         self.last_x = event.x
         self.last_y = event.y
-
-        # Рисуем первую точку
         self._draw_point(event.x, event.y, model)
 
     def on_mouse_move(self, event, model, canvas):
-        """Рисование при перемещении мыши"""
         if self.drawing and self.last_x is not None and self.last_y is not None:
-            # Рисуем линию от предыдущей точки к текущей
-            self._draw_line(self.last_x, self.last_y, event.x, event.y, model)
+            # Рассчитываем расстояние между точками
+            distance = math.sqrt((event.x - self.last_x) ** 2 + (event.y - self.last_y) ** 2)
+
+            if distance > 0:
+                # Адаптивный шаг в зависимости от скорости движения
+                step = max(1, self.size // 3)
+                steps = max(1, int(distance / step))
+
+                for i in range(steps + 1):
+                    t = i / steps
+                    x = int(self.last_x + (event.x - self.last_x) * t)
+                    y = int(self.last_y + (event.y - self.last_y) * t)
+                    self._draw_point(x, y, model)
+
             self.last_x = event.x
             self.last_y = event.y
+            canvas.update_image()
 
     def on_mouse_up(self, event, model, canvas):
-        """Конец рисования"""
         self.drawing = False
         self.last_x = None
         self.last_y = None
-
-        # Помечаем изображение как измененное
         model.modified = True
+        canvas.update_image()
 
     def _draw_point(self, x: int, y: int, model):
-        """Нарисовать точку"""
+        """Нарисовать одну точку/круг"""
         if 0 <= x < model.width and 0 <= y < model.height:
             draw = ImageDraw.Draw(model.image)
             if self.size == 1:
                 draw.point((x, y), fill=self.color)
             else:
                 radius = self.size // 2
-                draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=self.color)
-
-    def _draw_line(self, x1: int, y1: int, x2: int, y2: int, model):
-        """Нарисовать линию"""
-        draw = ImageDraw.Draw(model.image)
-        if self.size == 1:
-            draw.line([(x1, y1), (x2, y2)], fill=self.color, width=1)
-        else:
-            # Для толстых кистей рисуем несколько точек вдоль линии
-            draw.line([(x1, y1), (x2, y2)], fill=self.color, width=self.size)
+                # Для лучшего качества рисуем эллипс
+                draw.ellipse((x - radius, y - radius, x + radius, y + radius),
+                             fill=self.color, outline=self.color)
 
     def set_color(self, color: Tuple):
-        """Установить цвет кисти"""
         self.color = color
 
     def set_size(self, size: int):
-        """Установить размер кисти"""
         if size > 0:
             self.size = size

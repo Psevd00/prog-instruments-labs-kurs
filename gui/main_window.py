@@ -1,15 +1,19 @@
-# gui/main_window.py
+5.	# gui/main_window.py
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, colorchooser
+from tkinter import ttk, filedialog, messagebox, colorchooser, simpledialog
 from PIL import ImageTk
 import os
-from gui.dialogs import NewImageDialog
+from gui.dialogs import NewImageDialog, ResizeDialog, RotateDialog, BrightnessContrastDialog
 from gui.canvas import CanvasWidget
 from tools.brush_tool import BrushTool
 from tools.eraser_tool import EraserTool
 from tools.fill_tool import FillTool
 from tools.pipette_tool import PipetteTool
 from tools.selection_tool import SelectionTool
+from tools.text_tool import TextTool
+from tools.line_tool import LineTool
+from tools.rectangle_tool import RectangleTool
+from tools.ellipse_tool import EllipseTool
 from utils.constants import DEFAULT_FG_COLOR
 
 
@@ -76,6 +80,23 @@ class MainWindow:
         edit_menu.add_command(label="Удалить", command=self.delete_selection,
                               accelerator="Del")
 
+        # Меню "Изображение"
+        image_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Изображение", menu=image_menu)
+        image_menu.add_command(label="Изменить размер...", command=self.resize_image)
+        image_menu.add_command(label="Повернуть...", command=self.rotate_image)
+        image_menu.add_command(label="Обрезать", command=self.crop_image)
+
+        # Меню "Фильтры"
+        filter_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Фильтры", menu=filter_menu)
+        filter_menu.add_command(label="Инверсия цветов",
+                                command=lambda: self.apply_filter("invert"))
+        filter_menu.add_command(label="Оттенки серого",
+                                command=lambda: self.apply_filter("grayscale"))
+        filter_menu.add_command(label="Яркость/Контрастность...",
+                                command=self.brightness_contrast_dialog)
+
         # Меню "Справка"
         help_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Справка", menu=help_menu)
@@ -90,6 +111,22 @@ class MainWindow:
         self.root.bind("<Control-v>", lambda e: self.paste_selection())
         self.root.bind("<Delete>", lambda e: self.delete_selection())
 
+    def _update_brush_size(self):
+        """Обновить размер кисти и толщину линии"""
+        size = self.brush_size_var.get()
+
+        if self.tools["brush"]:
+            self.tools["brush"].set_size(size)
+
+        if self.tools["eraser"]:
+            self.tools["eraser"].set_size(size)
+
+        # Обновляем толщину линии для геометрических примитивов
+        for tool_id in ["line", "rectangle", "ellipse"]:
+            if tool_id in self.tools and self.tools[tool_id] and hasattr(self.tools[tool_id], 'set_line_width'):
+                self.tools[tool_id].set_line_width(size)
+
+
     def _create_toolbar(self):
         """Создать панель инструментов"""
         toolbar_frame = tk.Frame(self.root, relief=tk.RAISED, bd=2)
@@ -103,6 +140,9 @@ class MainWindow:
             ("Выделение", "▢", "selection"),
             ("Пипетка", "🔍", "pipette"),
             ("Текст", "T", "text"),
+            ("Линия", "📏", "line"),
+            ("Прямоугольник", "⬜", "rectangle"),
+            ("Эллипс", "⭕", "ellipse"),
         ]
 
         for text, icon, tool_id in tools:
@@ -119,7 +159,7 @@ class MainWindow:
         # Разделитель
         tk.Label(toolbar_frame, text="|").pack(side=tk.LEFT, padx=5)
 
-        # Выбор размера кисти
+        # Выбор размера кисти/линии
         tk.Label(toolbar_frame, text="Размер:").pack(side=tk.LEFT, padx=5)
         self.brush_size_var = tk.IntVar(value=5)
         size_spin = tk.Spinbox(toolbar_frame, from_=1, to=50,
@@ -130,6 +170,23 @@ class MainWindow:
 
         # Привязка события изменения
         self.brush_size_var.trace("w", lambda *args: self._update_brush_size())
+
+        # Разделитель
+        tk.Label(toolbar_frame, text="|").pack(side=tk.LEFT, padx=5)
+
+        # Переключатель Заливка/Контур
+        self.fill_var = tk.BooleanVar(value=False)
+        fill_check = tk.Checkbutton(toolbar_frame, text="Заливка",
+                                    variable=self.fill_var,
+                                    command=self._update_fill_mode)
+        fill_check.pack(side=tk.LEFT, padx=5)
+
+    def _update_fill_mode(self):
+        """Обновить режим заливки для инструментов"""
+        fill = self.fill_var.get()
+        for tool_id in ["rectangle", "ellipse"]:
+            if tool_id in self.tools and self.tools[tool_id]:
+                self.tools[tool_id].fill = fill
 
     def _create_tooltip(self, widget, text):
         """Создать всплывающую подсказку"""
@@ -254,8 +311,33 @@ class MainWindow:
         selection_tool = SelectionTool()
         self.tools["selection"] = selection_tool
 
-        # TODO: инструмент Текст будет добавлен позже
-        self.tools["text"] = None
+        # Текст
+        text_tool = TextTool()
+        text_tool.set_color(self.current_color)
+        self.tools["text"] = text_tool
+
+        # Геометрические примитивы
+        # Линия
+        line_tool = LineTool()
+        line_tool.set_color(self.current_color)
+        line_tool.set_line_width(self.brush_size_var.get())
+        self.tools["line"] = line_tool
+
+        # Прямоугольник
+        rect_tool = RectangleTool()
+        rect_tool.set_color(self.current_color)
+        rect_tool.set_fill_color(self.current_color)
+        rect_tool.set_line_width(self.brush_size_var.get())
+        rect_tool.fill = self.fill_var.get()
+        self.tools["rectangle"] = rect_tool
+
+        # Эллипс
+        ellipse_tool = EllipseTool()
+        ellipse_tool.set_color(self.current_color)
+        ellipse_tool.set_fill_color(self.current_color)
+        ellipse_tool.set_line_width(self.brush_size_var.get())
+        ellipse_tool.fill = self.fill_var.get()
+        self.tools["ellipse"] = ellipse_tool
 
     def select_tool(self, tool_id: str):
         """Выбрать инструмент"""
@@ -269,7 +351,6 @@ class MainWindow:
             self.canvas.set_tool(self.tools[tool_id])
             self.tool_label.config(text=f"Инструмент: {self.tools[tool_id].name}")
         else:
-            # Если инструмент еще не реализован
             self.status_label.config(text=f"Инструмент '{tool_id}' в разработке")
 
     def choose_color(self):
@@ -280,7 +361,7 @@ class MainWindow:
         )
         if color_code[0]:
             rgb = tuple(map(int, color_code[0]))
-            self.set_color(rgb + (255,))  # Добавляем альфа-канал
+            self.set_color(rgb + (255,))
 
     def set_color(self, color):
         """Установить текущий цвет"""
@@ -292,6 +373,11 @@ class MainWindow:
             if tool and hasattr(tool, 'set_color'):
                 tool.set_color(color)
 
+        # Для инструментов с заливкой
+        for tool_id in ["rectangle", "ellipse"]:
+            if tool_id in self.tools and self.tools[tool_id] and hasattr(self.tools[tool_id], 'set_fill_color'):
+                self.tools[tool_id].set_fill_color(color)
+
     def set_color_from_hex(self, hex_color):
         """Установить цвет из HEX строки"""
         hex_color = hex_color.lstrip('#')
@@ -299,7 +385,7 @@ class MainWindow:
         self.set_color(rgb + (255,))
 
     def _update_brush_size(self):
-        """Обновить размер кисти и ластика"""
+        """Обновить размер кисти и толщину линии"""
         size = self.brush_size_var.get()
 
         if self.tools["brush"]:
@@ -307,6 +393,16 @@ class MainWindow:
 
         if self.tools["eraser"]:
             self.tools["eraser"].set_size(size)
+
+        # Обновляем толщину линии для геометрических примитивов
+        if self.tools["line"]:
+            self.tools["line"].set_line_width(size)
+
+        if self.tools["rectangle"]:
+            self.tools["rectangle"].set_line_width(size)
+
+        if self.tools["ellipse"]:
+            self.tools["ellipse"].set_line_width(size)
 
     def _update_coords(self, event):
         """Обновить координаты в строке состояния"""
@@ -357,7 +453,7 @@ class MainWindow:
                 self.tools["selection"].clear_selection(self.canvas)
 
     def update_image(self):
-        """Обновить изображение на холсте (делегируем холсту)"""
+        """Обновить изображение на холсте"""
         self.canvas.update_image()
         self.update_status()
 
@@ -384,7 +480,8 @@ class MainWindow:
             width, height, bg_color = dialog.result
             self.model.create_new(width, height, bg_color)
             self.update_image()
-            self.controller.save_state()
+            self.controller.history.clear()  # Очищаем историю
+            self.controller.save_state()  # Сохраняем начальное состояние
 
     def open_image(self):
         """Открыть изображение"""
@@ -405,7 +502,8 @@ class MainWindow:
                 self.model.load_image(filename)
                 self.update_image()
                 self.status_label.config(text=f"Открыт файл: {os.path.basename(filename)}")
-                self.controller.save_state()
+                self.controller.history.clear()  # Очищаем историю
+                self.controller.save_state()  # Сохраняем начальное состояние
             except Exception as e:
                 messagebox.showerror("Ошибка", f"Не удалось открыть файл:\n{e}")
 
@@ -413,7 +511,6 @@ class MainWindow:
         """Сохранить изображение"""
         if self.model.filepath:
             try:
-                # Определяем формат по расширению
                 ext = os.path.splitext(self.model.filepath)[1].lower()
                 format = "PNG" if ext == ".png" else "JPEG" if ext in [".jpg", ".jpeg"] else "PNG"
 
@@ -447,12 +544,77 @@ class MainWindow:
             except Exception as e:
                 messagebox.showerror("Ошибка", f"Не удалось сохранить файл:\n{e}")
 
+    def resize_image(self):
+        """Изменить размер изображения"""
+        dialog = ResizeDialog(self.root, self.model.width, self.model.height)
+        if dialog.result:
+            new_width, new_height = dialog.result
+            try:
+                self.controller.save_state()  # Сохраняем состояние
+                self.model.resize(new_width, new_height)
+                self.update_image()
+            except Exception as e:
+                messagebox.showerror("Ошибка", str(e))
+
+    def rotate_image(self):
+        """Повернуть изображение"""
+        dialog = RotateDialog(self.root)
+        if dialog.result:
+            angle = dialog.result
+            try:
+                self.controller.save_state()  # Сохраняем состояние
+                self.model.rotate(angle)
+                self.update_image()
+            except Exception as e:
+                messagebox.showerror("Ошибка", str(e))
+
+    def crop_image(self):
+        """Обрезать изображение"""
+        if self.model.selection:
+            self.controller.save_state()  # Сохраняем состояние
+            self.model.crop(self.model.selection)
+            self.update_image()
+        else:
+            messagebox.showwarning("Внимание", "Сначала выделите область для обрезки")
+
+    def apply_filter(self, filter_type):
+        """Применить фильтр"""
+        try:
+            self.controller.save_state()  # Сохраняем состояние
+            self.model.apply_filter(filter_type)
+            self.update_image()
+        except Exception as e:
+            messagebox.showerror("Ошибка", str(e))
+
+    def brightness_contrast_dialog(self):
+        """Диалог яркости/контрастности"""
+        dialog = BrightnessContrastDialog(self.root)
+        if dialog.result:
+            brightness, contrast = dialog.result
+            try:
+                self.controller.save_state()  # Сохраняем состояние
+                self.model.apply_filter("brightness_contrast",
+                                        brightness=brightness,
+                                        contrast=contrast)
+                self.update_image()
+            except Exception as e:
+                messagebox.showerror("Ошибка", str(e))
+
     def show_about(self):
         """Показать информацию о программе"""
         messagebox.showinfo(
             "О программе",
             "Редактор растровой графики\n\n"
-            "Версия 0.6\n"
-            "Функционал: Открытие/сохранение, инструменты рисования, выделение\n\n"
-            "Python, Tkinter, Pillow"
+            "Версия 1.1\n"
+            "Студент: Астафьев Вадим Алексеевич\n"
+            "Специальность: Информационная безопасность автоматизированных систем\n\n"
+            "Реализованы все базовые функции редактора:\n"
+            "- Открытие/сохранение PNG, JPEG, BMP\n"
+            "- Инструменты: Кисть, Ластик, Заливка, Пипетка, Выделение, Текст\n"
+            "- Геометрические примитивы: Линия, Прямоугольник, Эллипс\n"
+            "- Операции: Изменение размера, Поворот, Обрезка\n"
+            "- Фильтры: Инверсия, Оттенки серого, Яркость/Контрастность\n"
+            "- Система Undo/Redo (до 50 действий)\n"
+            "- Горячие клавиши: Ctrl+Z, Ctrl+Y, Ctrl+S, Ctrl+O, Ctrl+N\n\n"
+            "Python, Tkinter, Pillow, NumPy"
         )
